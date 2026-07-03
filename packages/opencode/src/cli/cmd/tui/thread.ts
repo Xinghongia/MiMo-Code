@@ -170,6 +170,11 @@ export const TuiThreadCommand = cmd({
         type: "boolean",
         describe: "skip workspace trust prompt and trust the directory",
         default: false,
+      })
+      .option("dangerously-skip-permissions", {
+        type: "boolean",
+        describe: "auto-approve permissions that are not explicitly denied (dangerous!)",
+        default: false,
       }),
   handler: async (args) => {
     // Keep ENABLE_PROCESSED_INPUT cleared even if other code flips it.
@@ -179,6 +184,13 @@ export const TuiThreadCommand = cmd({
       // Must be the very first thing — disables CTRL_C_EVENT before any Worker
       // spawn or async work so the OS cannot kill the process group.
       win32DisableProcessedInput()
+
+      // Propagate to the worker (which loads config) via the env it inherits
+      // from sanitizedProcessEnv. Config injects an allow-all base under the
+      // user's permission rules so denies still win.
+      if (args["dangerously-skip-permissions"]) {
+        process.env.MIMOCODE_DANGEROUSLY_SKIP_PERMISSIONS = "1"
+      }
 
       if (args.fork && !args.continue && !args.session) {
         UI.error("--fork requires --continue or --session")
