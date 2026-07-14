@@ -94,6 +94,10 @@ export const layer: Layer.Layer<Service, never, Bus.Service> = Layer.effect(
   Effect.gen(function* () {
     const bus = yield* Bus.Service
 
+    // Unique ID for this registry layer instance — used to distinguish
+    // actors created by THIS process from leftover rows of a previous one.
+    const instanceID = crypto.randomUUID()
+
     // --- CRUD methods ---
 
     const register = Effect.fn("ActorRegistry.register")(function* (input: {
@@ -127,6 +131,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service> = Layer.effect(
         last_turn_time: now,
         turn_count: 0,
         last_error: null,
+        instance_id: instanceID,
         time_completed: null,
         time_created: now,
         time_updated: now,
@@ -398,24 +403,25 @@ export const layer: Layer.Layer<Service, never, Bus.Service> = Layer.effect(
     })
 
     // --- Orphan Recovery ---
-    // On init, mark all pending/running actors as idle with failure outcome.
-    // Per spec B6: don't auto-revive — they wake on next sender's send.
+    // On init, mark pending/running actors from a PREVIOUS process as idle
+    // with failure outcome. Actors from this very instance (same instanceID)
+    // are still alive and must NOT be touched.
     yield* Effect.sync(() =>
       Database.use((db) => {
         const now = Date.now()
-        db.update(ActorRegistryTable)
-          .set({
-            status: "idle",
-            last_outcome: "failure",
-            last_error: "orphaned: process restarted",
-            time_updated: now,
-            time_completed: now,
-          })
-          .where(inArray(ActorRegistryTable.status, ["pending", "running"]))
-          .run()
+        db.run(sql`
+          UPDATE actor_registry
+          SET status = 'idle',
+              last_outcome = 'failure',
+              last_error = 'orphaned: process restarted',
+              time_updated = ${now},
+              time_completed = ${now}
+          WHERE status IN ('pending', 'running')
+            AND instance_id != ${instanceID}
+        `)
       }),
     )
-    log.info("orphan recovery complete")
+    log.info("orphan recovery complete", { instanceID })
 
     // --- Stuck Detection ---
     const scanStuck = Effect.gen(function* () {

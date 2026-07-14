@@ -453,6 +453,39 @@ describe("ActorRegistry", () => {
         expect(recovered!.lastError).toBe("orphaned: process restarted")
       })
     })
+
+    test("does NOT orphan actors registered in the same registry instance", async () => {
+      await using tmp = await tmpdir({ git: true })
+
+      // Register an actor and set it to running within the same runtime
+      await withRegistry(tmp.path, async (rt) => {
+        const parent = await rt.runPromise(Session.Service.use((svc) => svc.create()))
+        const taskId = SessionID.descending()
+        await rt.runPromise(
+          ActorRegistry.Service.use((svc) =>
+            svc.register({
+              sessionID: parent.id,
+              actorID: taskId,
+              mode: "subagent",
+              agent: "explore",
+              description: "Current instance task",
+              contextMode: "none",
+              background: false,
+              lifecycle: "ephemeral",
+            }),
+          ),
+        )
+        await rt.runPromise(
+          ActorRegistry.Service.use((svc) => svc.updateStatus(parent.id, taskId, { status: "running" })),
+        )
+
+        // Actor should still be running — not orphaned
+        const actor = await rt.runPromise(ActorRegistry.Service.use((svc) => svc.get(parent.id, taskId)))
+        expect(actor!.status).toBe("running")
+        expect(actor!.lastOutcome).toBeUndefined()
+        expect(actor!.lastError).toBeUndefined()
+      })
+    })
   })
 
   describe("agentTypeFor", () => {
