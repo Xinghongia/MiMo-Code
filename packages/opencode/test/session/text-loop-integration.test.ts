@@ -438,7 +438,15 @@ describe("text loop detection (integration, MockLLM)", () => {
 
           // Verify: 2 recovery prompts injected (mild + strong)
           const recoveryMsgs = allMsgs.filter(
-            (m) => m.info.role === "user" && m.parts.some((p) => "synthetic" in p && (p as any).synthetic && p.type === "text" && p.text.includes("system-reminder")),
+            (m) =>
+              m.info.role === "user" &&
+              m.parts.some(
+                (p) =>
+                  "synthetic" in p &&
+                  (p as any).synthetic &&
+                  p.type === "text" &&
+                  (p.text.includes("LOOP DETECTED") || p.text.includes("CRITICAL")),
+              ),
           )
           console.log(`[7-repeats] Recovery messages injected: ${recoveryMsgs.length}`)
           expect(recoveryMsgs.length).toBe(2)
